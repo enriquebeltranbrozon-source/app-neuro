@@ -2,32 +2,43 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Database\Factories\UserFactory;
+use App\Enums\UserRole;
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-class User extends Authenticatable
+class User extends Authenticatable implements FilamentUser
 {
-    /** @use HasFactory<UserFactory> */
+    /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
 
-    // 1. Usamos la sintaxis clásica a prueba de fallos
+    /**
+     * Atributos asignables en masa.
+     *
+     * @var array<int, string>
+     */
     protected $fillable = [
         'name', 
         'email', 
         'password',
-        'is_admin', // <--- No olvides la coma
+        'role',
     ];
 
+    /**
+     * Atributos ocultos para la serialización.
+     *
+     * @var array<int, string>
+     */
     protected $hidden = [
         'password', 
         'remember_token',
     ];
 
     /**
-     * Get the attributes that should be cast.
+     * Castings de atributos del modelo.
      *
      * @return array<string, string>
      */
@@ -35,7 +46,80 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            'password'          => 'hashed',
+            'role'              => UserRole::class,
         ];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Control de Acceso a Filament (Panel Security)
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Determina si el usuario puede acceder al panel de administración.
+     */
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return $this->isAdmin() || $this->isAgent() || $this->isMarketing();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Métodos de Verificación de Roles
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Confirma si el usuario es un Administrador del sistema.
+     */
+    public function isAdmin(): bool
+    {
+        return $this->role === UserRole::Admin;
+    }
+
+    /**
+     * Confirma si el usuario es un Agente / Terapeuta comercial.
+     */
+    public function isAgent(): bool
+    {
+        return $this->role === UserRole::Agent;
+    }
+
+    /**
+     * Alias de compatibilidad para verificar si es Terapeuta.
+     */
+    public function isTherapist(): bool
+    {
+        return $this->isAgent() || ($this->role?->value === 'therapist');
+    }
+
+    /**
+     * Confirma si el usuario pertenece al equipo de Marketing.
+     */
+    public function isMarketing(): bool
+    {
+        // Si existe el caso Marketing en el Enum UserRole se valida contra él,
+        // o contra el valor string por compatibilidad.
+        if (defined(UserRole::class . '::Marketing')) {
+            return $this->role === UserRole::Marketing || $this->isAdmin();
+        }
+
+        return $this->role?->value === 'marketing' || $this->isAdmin();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Relaciones Eloquent
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Obtiene los leads asignados al agente.
+     */
+    public function leads(): HasMany
+    {
+        return $this->hasMany(Lead::class);
     }
 }
