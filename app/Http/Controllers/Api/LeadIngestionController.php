@@ -5,13 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendTelegramLeadNotification;
 use App\Models\Lead;
+use App\Notifications\NewLeadReceived;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Throwable;
 
 class LeadIngestionController extends Controller
 {
@@ -57,10 +60,10 @@ class LeadIngestionController extends Controller
         try {
             $data = $validator->validated();
 
-            // 1. Sanitización de teléfono
+            // 1. Sanitización de teléfono a 10 dígitos
             $cleanPhone = $this->sanitizePhone($data['phone']);
 
-            // 2. Mapeo e inferencia de origen de landing (Soporta landing_origin o landing_key)
+            // 2. Mapeo e inferencia de origen de landing
             $originKey = $data['landing_origin'] ?? $data['landing_key'] ?? null;
             $landingOrigin = $originKey ?? $this->inferLandingOrigin(
                 $data['landing_page'] ?? null, 
@@ -153,16 +156,17 @@ class LeadIngestionController extends Controller
                 ];
             });
 
-            // 6. Notificación
-            $this->dispatchTelegramSafely($result['lead'], $result['isMatched']);
+            // 6. Enviar notificaciones aisladas
+            $this->dispatchNotificationsSafely($result['lead'], $result['isMatched']);
 
             return response()->json([
                 'success' => true,
                 'message' => $result['updated'] ? 'Prospecto actualizado exitosamente.' : 'Prospecto registrado exitosamente.',
                 'lead_id' => $result['lead']->id,
+                'token'   => $result['lead']->session_token,
             ], $result['updated'] ? 200 : 201);
 
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::error('Error registrando Lead: ' . $e->getMessage(), [
                 'exception' => $e->getTraceAsString(),
                 'payload'   => $request->all(),
@@ -176,7 +180,59 @@ class LeadIngestionController extends Controller
     }
 
     /**
-     * Sanitiza y limpia el número de teléfono a 10 dígitos.
+     * Registra un clic en el botón de WhatsApp y genera un token/borrador de sesión.
+     */
+    public function registerWhatsappClick(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'landing_origin' => ['nullable', 'string', 'max:255'],
+                'landing_page'   => ['nullable', 'string', 'max:500'],
+                'source'         => ['nullable', 'string', 'max:255'],
+                'utm_source'     => ['nullable', 'string', 'max:255'],
+                'utm_medium'     => ['nullable', 'string', 'max:255'],
+                'utm_campaign'   => ['nullable', 'string', 'max:255'],
+                'utm_term'       => ['nullable', 'string', 'max:255'],
+                'utm_content'    => ['nullable', 'string', 'max:255'],
+                'gclid'          => ['nullable', 'string', 'max:255'],
+                'gbraid'         => ['nullable', 'string', 'max:255'],
+                'wbraid'         => ['nullable', 'string', 'max:255'],
+                'session_token'  => ['nullable', 'string', 'max:255'],
+            ]);
+
+            $sessionToken = $validated['session_token'] ?? Str::uuid()->toString();
+
+            $lead = Lead::create(array_merge($validated, [
+                'name'          => 'Click WhatsApp',
+                'phone'         => 'PENDIENTE_' . strtoupper(Str::random(6)),
+                'session_token' => $sessionToken,
+                'status'        => 'abierto',
+                'source'        => $validated['source'] ?? 'whatsapp_button',
+                'ip_address'    => $request->ip(),
+                'user_agent'    => $request->userAgent(),
+            ]));
+
+            return response()->json([
+                'success' => true,
+                'token'   => $lead->session_token,
+                'message' => 'Token de atención WhatsApp registrado exitosamente.',
+            ], 200);
+
+        } catch (Throwable $e) {
+            Log::error('Error en registerWhatsappClick: ' . $e->getMessage(), [
+                'exception' => $e->getTraceAsString(),
+                'payload'   => $request->all(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Ocurrió un error al procesar la atención por WhatsApp.',
+            ], 500);
+        }
+    }
+
+    /**
+     * Sanitiza y limpia el número de teléfono a 10 dígitos exactos.
      */
     private function sanitizePhone(string $phone): string
     {
@@ -215,13 +271,24 @@ class LeadIngestionController extends Controller
     }
 
     /**
-     * Despacha la notificación por Telegram de forma aislada a la transacción.
+     * Ejecuta el despacho de notificaciones (Email + Telegram) sin bloquear la respuesta HTTP.
      */
-    private function dispatchTelegramSafely(Lead $lead, bool $isMatched = false): void
+    private function dispatchNotificationsSafely(Lead $lead, bool $isMatched = false): void
     {
+        // 1. Correo electrónico
+        try {
+            $recipient = config('mail.from.address');
+            if ($recipient) {
+                Notification::route('mail', $recipient)->notify(new NewLeadReceived($lead));
+            }
+        } catch (Throwable $e) {
+            Log::warning('No se pudo enviar correo del lead #' . $lead->id . ': ' . $e->getMessage());
+        }
+
+        // 2. Telegram Job
         try {
             SendTelegramLeadNotification::dispatch($lead, $isMatched);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::warning('No se pudo enviar la notificación a Telegram del lead #' . $lead->id . ': ' . $e->getMessage());
         }
     }
