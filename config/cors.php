@@ -32,7 +32,7 @@ return [
 
     // Expresión regular estricta para el dominio principal y CUALQUIER subdominio HTTPS
     'allowed_origins_patterns' => [
-        '/^https:\/\/(?:[a-zA-Z0-9-]+\.)*neurofeedback\.mx$/',
+        '#^https://.*\.neurofeedback\.mx$#',
     ],
 
     'allowed_headers' => [
