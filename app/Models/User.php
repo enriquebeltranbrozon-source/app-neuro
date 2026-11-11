@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -25,6 +26,7 @@ class User extends Authenticatable implements FilamentUser
         'email', 
         'password',
         'role',
+        'clinic_id', // <-- Añadido para soportar la asignación de sucursal
     ];
 
     /**
@@ -100,8 +102,6 @@ class User extends Authenticatable implements FilamentUser
      */
     public function isMarketing(): bool
     {
-        // Si existe el caso Marketing en el Enum UserRole se valida contra él,
-        // o contra el valor string por compatibilidad.
         if (defined(UserRole::class . '::Marketing')) {
             return $this->role === UserRole::Marketing || $this->isAdmin();
         }
@@ -116,10 +116,26 @@ class User extends Authenticatable implements FilamentUser
     */
 
     /**
+     * Clínica o sucursal principal a la que pertenece el usuario.
+     */
+    public function clinic(): BelongsTo
+    {
+        return $this->belongsTo(Clinic::class);
+    }
+
+    /**
      * Obtiene los leads asignados al agente.
      */
     public function leads(): HasMany
     {
         return $this->hasMany(Lead::class);
+    }
+
+    /**
+     * Obtiene las sesiones clínicas impartidas por este usuario (terapeuta).
+     */
+    public function sessions(): HasMany
+    {
+        return $this->hasMany(PatientSession::class, 'user_id');
     }
 }

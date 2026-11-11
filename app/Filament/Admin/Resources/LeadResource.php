@@ -31,12 +31,12 @@ class LeadResource extends Resource
     protected static ?string $navigationGroup = 'Gestión Comercial';
 
     /**
-     * Aislamiento SQL por Rol:
+     * Aislamiento SQL por Rol con Eager Loading optimizado:
      * El agente comercial solo consulta sus leads o prospectos sin asignar.
      */
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
+        $query = parent::getEloquentQuery()->with(['user']);
         /** @var \App\Models\User|null $currentUser */
         $currentUser = auth()->user();
 
@@ -159,7 +159,7 @@ class LeadResource extends Resource
                             ->rows(4),
                     ])->columns(2),
 
-                // SECCIÓN 4: ATRIBUCIÓN PUBLICITARIA (Solo Visible para Admin y Marketing)
+                // SECCIÓN 4: ATRIBUCIÓN PUBLICITARIA (Solo Visible para Admin)
                 Forms\Components\Section::make('Atribución Publicitaria (Pauta y Origen)')
                     ->description('Métricas de canal, landing originaria, campañas de anuncios y Google Click ID.')
                     ->icon('heroicon-o-megaphone')
@@ -226,7 +226,6 @@ class LeadResource extends Resource
                     ->copyable()
                     ->copyMessage('Teléfono copiado al portapapeles'),
 
-                // 1. ORIGEN / LANDING EN LA TABLA
                 Tables\Columns\TextColumn::make('landing_origin')
                     ->label('Origen')
                     ->badge()
@@ -241,7 +240,6 @@ class LeadResource extends Resource
                     ->searchable()
                     ->toggleable(),
 
-                // 2. ENLACE DIRECTO A LA PÁGINA ORIGINARIA
                 Tables\Columns\TextColumn::make('landing_page')
                     ->label('Página de Origen')
                     ->icon('heroicon-m-arrow-top-right-on-square')
@@ -342,7 +340,7 @@ class LeadResource extends Resource
                     })
                     ->openUrlInNewTab(),
 
-                // 2. Tomar Prospecto Libre
+                // 2. Tomar Prospecto Libre (Blindado contra concurrencia)
                 Tables\Actions\Action::make('claim')
                     ->label('Tomar')
                     ->icon('heroicon-o-user-plus')
@@ -352,6 +350,17 @@ class LeadResource extends Resource
                     ->modalHeading('Asignarte este prospecto')
                     ->modalDescription('¿Deseas tomar este prospecto e integrarlo a tu cartera de seguimiento?')
                     ->action(function (Lead $record): void {
+                        // Verificación atómica contra condiciones de carrera
+                        $record->refresh();
+                        if (!is_null($record->user_id)) {
+                            Notification::make()
+                                ->title('Prospecto ya asignado')
+                                ->body('Lo sentimos, otro agente acaba de tomar este prospecto.')
+                                ->warning()
+                                ->send();
+                            return;
+                        }
+
                         $record->update([
                             'user_id'      => auth()->id(),
                             'status'       => $record->status === 'abierto' ? 'contactado' : $record->status,
