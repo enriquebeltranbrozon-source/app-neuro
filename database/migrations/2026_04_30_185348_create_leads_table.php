@@ -405,30 +405,57 @@ return new class extends Migration
         // ==========================================
 
         Schema::create('eeg_studies', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('patient_id')->constrained('patients')->cascadeOnDelete();
-            $table->foreignId('clinic_id')->nullable()->constrained('clinics')->nullOnDelete();
-            $table->foreignId('uploaded_by')->nullable()->constrained('users')->nullOnDelete();
+        $table->id();
 
-            $table->string('status', 30)->default('scheduled'); // 'scheduled' | 'completed' | 'external'
-            $table->boolean('is_external')->default(false);
-            $table->dateTime('scheduled_at')->nullable();
-            $table->foreignId('requested_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignId('assigned_technician_id')->nullable()->constrained('users')->nullOnDelete();
+        // Relaciones principales y trazabilidad de actores
+        $table->foreignId('patient_id')
+            ->constrained('patients')
+            ->cascadeOnDelete();
 
-            $table->string('title'); // Ej. "EEG Basal Inicial"
-            $table->date('study_date')->nullable();
-            $table->string('file_path'); // Ruta en disk (ej. local o s3)
-            $table->string('original_filename');
-            $table->string('mime_type', 120)->nullable();
-            $table->unsignedBigInteger('file_size')->nullable(); // bytes
-            $table->text('notes')->nullable(); // Observaciones breves previas al protocolo
+        $table->foreignId('clinic_id')
+            ->nullable()
+            ->constrained('clinics')
+            ->nullOnDelete();
 
-            $table->timestamps();
+        $table->foreignId('requested_by')
+            ->nullable()
+            ->constrained('users')
+            ->nullOnDelete();
 
-            $table->index(['patient_id', 'created_at']);
-            $table->index(['clinic_id', 'study_date']);
-        });
+        $table->foreignId('assigned_technician_id')
+            ->nullable()
+            ->constrained('users')
+            ->nullOnDelete();
+
+        $table->foreignId('uploaded_by')
+            ->nullable()
+            ->constrained('users')
+            ->nullOnDelete();
+
+        // Flujo de agenda y estado del estudio
+        $table->string('status', 30)->default('scheduled'); // 'scheduled' | 'completed' | 'external'
+        $table->boolean('is_external')->default(false);
+        $table->dateTime('scheduled_at')->nullable();
+        $table->dateTime('completed_at')->nullable();
+
+        // Metadatos clínicos y archivo en repositorio
+        $table->string('title', 255); // Ej. "EEG Basal Inicial"
+        $table->date('study_date')->nullable();
+        $table->string('file_path', 500)->nullable();
+        $table->string('original_filename', 255)->nullable();
+        $table->string('mime_type', 120)->nullable();
+        $table->unsignedBigInteger('file_size')->nullable(); // bytes
+        $table->text('notes')->nullable(); // Indicaciones previas u observaciones técnicas
+
+        $table->timestamps();
+        $table->softDeletes();
+
+        // Índices de rendimiento para agenda del técnico y repositorio por clínica/paciente
+        $table->index(['patient_id', 'status', 'created_at'], 'eeg_patient_status_created_idx');
+        $table->index(['clinic_id', 'status', 'scheduled_at'], 'eeg_clinic_status_scheduled_idx');
+        $table->index(['assigned_technician_id', 'status', 'scheduled_at'], 'eeg_tech_status_scheduled_idx');
+        $table->index(['clinic_id', 'study_date'], 'eeg_clinic_study_date_idx');
+    });
 
         // ==========================================
         // 5. MÓDULO DE FINANZAS Y EGRESOS

@@ -157,31 +157,31 @@ class EegStudyResource extends Resource
                     ->icon('heroicon-o-user-plus')
                     ->schema([
                         Forms\Components\Select::make('patient_id')
-                            ->label('Paciente')
-                            ->relationship(
-                                name: 'patient',
-                                titleAttribute: 'name',
-                                modifyQueryUsing: function (Builder $query) {
-                                    /** @var User|null $actor */
-                                    $actor = auth()->user();
+                        ->label('Paciente')
+                        ->relationship(
+                            name: 'patient',
+                            titleAttribute: 'full_name',
+                            modifyQueryUsing: function (Builder $query) {
+                                /** @var User|null $actor */
+                                $actor = auth()->user();
 
-                                    if (! $actor instanceof User) {
-                                        return $query->whereRaw('1 = 0');
-                                    }
-
-                                    if ($actor->isAdmin()) {
-                                        return $query;
-                                    }
-
-                                    $clinicIds = $actor->accessibleClinicIds();
-
-                                    if (empty($clinicIds)) {
-                                        return $query->whereRaw('1 = 0');
-                                    }
-
-                                    return $query->whereIn('patients.clinic_id', $clinicIds);
+                                if (! $actor instanceof User) {
+                                    return $query->whereRaw('1 = 0');
                                 }
-                            )
+
+                                if ($actor->isAdmin()) {
+                                    return $query;
+                                }
+
+                                $clinicIds = $actor->accessibleClinicIds();
+
+                                if (empty($clinicIds)) {
+                                    return $query->whereRaw('1 = 0');
+                                }
+
+                                return $query->whereIn('patients.clinic_id', $clinicIds);
+                            }
+                        )
                             ->live()
                             ->afterStateUpdated(function (?string $state, Set $set): void {
                                 if (blank($state)) {
