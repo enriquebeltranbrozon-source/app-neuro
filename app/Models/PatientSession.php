@@ -20,9 +20,19 @@ class PatientSession extends Model
         'charged_amount' => 'decimal:2',
     ];
 
+    public function clinic(): BelongsTo
+    {
+        return $this->belongsTo(Clinic::class);
+    }
+
     public function patient(): BelongsTo
     {
         return $this->belongsTo(Patient::class);
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     public function therapist(): BelongsTo

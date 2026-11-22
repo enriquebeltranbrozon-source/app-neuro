@@ -20,6 +20,9 @@ cd "$PROJECT_DIR" || exit 1
 # 1. Servidor de desarrollo Laravel (Forzando la ruta raíz del proyecto)
 php artisan serve --host=127.0.0.1 --port=8000 &
 
+sudo systemctl status mysql
+sudo systemctl start mysql
+
 # 2. Compilador de assets (Vite / Tailwind / Panel de Filament)
 npm run dev &
 

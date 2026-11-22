@@ -7,6 +7,7 @@ use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -22,11 +23,11 @@ class User extends Authenticatable implements FilamentUser
      * @var array<int, string>
      */
     protected $fillable = [
-        'name', 
-        'email', 
+        'name',
+        'email',
         'password',
         'role',
-        'clinic_id', // <-- Añadido para soportar la asignación de sucursal
+        'clinic_id',
     ];
 
     /**
@@ -35,7 +36,7 @@ class User extends Authenticatable implements FilamentUser
      * @var array<int, string>
      */
     protected $hidden = [
-        'password', 
+        'password',
         'remember_token',
     ];
 
@@ -50,6 +51,7 @@ class User extends Authenticatable implements FilamentUser
             'email_verified_at' => 'datetime',
             'password'          => 'hashed',
             'role'              => UserRole::class,
+            'clinic_id'         => 'integer',
         ];
     }
 
@@ -59,54 +61,168 @@ class User extends Authenticatable implements FilamentUser
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Determina si el usuario puede acceder al panel de administración.
-     */
     public function canAccessPanel(Panel $panel): bool
     {
-        return $this->isAdmin() || $this->isAgent() || $this->isMarketing();
+        return $this->isAdmin()
+            || $this->isZoneManager()
+            || $this->isTherapist()
+            || $this->isAgent()
+            || $this->isMarketing()
+            || $this->isEegTechnician();
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Métodos de Verificación de Roles
+    | Métodos de Verificación de Roles y Capacidades
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Confirma si el usuario es un Administrador del sistema.
-     */
     public function isAdmin(): bool
     {
-        return $this->role === UserRole::Admin;
+        return $this->role?->isAdmin() ?? false;
     }
 
-    /**
-     * Confirma si el usuario es un Agente / Terapeuta comercial.
-     */
     public function isAgent(): bool
     {
-        return $this->role === UserRole::Agent;
+        return $this->role?->isAgent() ?? false;
     }
 
-    /**
-     * Alias de compatibilidad para verificar si es Terapeuta.
-     */
     public function isTherapist(): bool
     {
-        return $this->isAgent() || ($this->role?->value === 'therapist');
+        return $this->role?->isTherapist() ?? false;
+    }
+
+    public function isMarketing(): bool
+    {
+        return $this->role?->isMarketing() ?? false;
+    }
+
+    public function isZoneManager(): bool
+    {
+        return $this->role?->isZoneManager() ?? false;
+    }
+
+    public function isEegTechnician(): bool
+    {
+        return $this->role?->isEegTechnician() ?? false;
+    }
+
+    public function canManageInfrastructure(): bool
+    {
+        return $this->role?->canManageInfrastructure() ?? false;
+    }
+
+    public function canAccessClinicalOperations(): bool
+    {
+        return $this->role?->canAccessClinicalOperations() ?? false;
+    }
+
+    public function canAccessMarketing(): bool
+    {
+        return $this->role?->canAccessMarketing() ?? false;
+    }
+
+    public function canManageAssignedClinics(): bool
+    {
+        return $this->role?->canManageAssignedClinics() ?? false;
     }
 
     /**
-     * Confirma si el usuario pertenece al equipo de Marketing.
+     * Devuelve la única clínica administrada localmente por este usuario (si aplica).
      */
-    public function isMarketing(): bool
+    public function managedClinic(): ?Clinic
     {
-        if (defined(UserRole::class . '::Marketing')) {
-            return $this->role === UserRole::Marketing || $this->isAdmin();
+        if ($this->isAdmin()) {
+            return null;
         }
 
-        return $this->role?->value === 'marketing' || $this->isAdmin();
+        $clinic = $this->clinics()
+            ->wherePivot('is_clinic_admin', true)
+            ->first();
+
+        return $clinic instanceof Clinic ? $clinic : null;
+    }
+
+    /**
+     * ID de la clínica administrada localmente por este usuario, o null si no administra ninguna.
+     */
+    public function managedClinicId(): ?int
+    {
+        $clinic = $this->managedClinic();
+
+        return $clinic ? (int) $clinic->id : null;
+    }
+
+    /**
+     * Indica si el usuario administra localmente una clínica específica.
+     */
+    public function isClinicAdminOf(int $clinicId): bool
+    {
+        if ($clinicId <= 0) {
+            return false;
+        }
+
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return $this->managedClinicId() === $clinicId;
+    }
+
+    /**
+     * Indica si el usuario tiene facultad de administración local sobre alguna clínica.
+     */
+    public function canAdministerAnyClinic(): bool
+    {
+        return $this->isAdmin() || $this->managedClinicId() !== null;
+    }
+
+    /**
+     * Determina si el usuario actual puede gestionar (ver/crear/editar)
+     * a un usuario objetivo dentro del alcance de sus sucursales.
+     */
+    public function canManageStaffUser(self $target): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        $targetClinicIds = $target->clinics()
+            ->pluck('clinics.id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        if ($target->clinic_id) {
+            $targetClinicIds[] = (int) $target->clinic_id;
+        }
+
+        $targetClinicIds = array_values(array_unique($targetClinicIds));
+
+        if ($this->isZoneManager()) {
+            if ($target->isAdmin() || $target->isZoneManager()) {
+                return false;
+            }
+
+            $managerClinics = $this->accessibleClinicIds();
+            if (empty($managerClinics)) {
+                return false;
+            }
+
+            return count(array_intersect($managerClinics, $targetClinicIds)) > 0;
+        }
+
+        // Si un usuario tiene administración local de una clínica, solo puede gestionar
+        // personal no-admin / no-zone-manager de esa misma clínica.
+        $managedId = $this->managedClinicId();
+        if ($managedId !== null) {
+            if ($target->isAdmin() || $target->isZoneManager() || $target->id === $this->id) {
+                return false;
+            }
+
+            return in_array($managedId, $targetClinicIds, true);
+        }
+
+        return false;
     }
 
     /*
@@ -115,27 +231,88 @@ class User extends Authenticatable implements FilamentUser
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Clínica o sucursal principal a la que pertenece el usuario.
-     */
     public function clinic(): BelongsTo
     {
         return $this->belongsTo(Clinic::class);
     }
 
-    /**
-     * Obtiene los leads asignados al agente.
-     */
+    public function clinics(): BelongsToMany
+    {
+        return $this->belongsToMany(Clinic::class, 'clinic_user')
+            ->withPivot(['is_primary', 'is_clinic_admin'])
+            ->withTimestamps();
+    }
+
     public function leads(): HasMany
     {
         return $this->hasMany(Lead::class);
     }
 
-    /**
-     * Obtiene las sesiones clínicas impartidas por este usuario (terapeuta).
-     */
     public function sessions(): HasMany
     {
         return $this->hasMany(PatientSession::class, 'user_id');
+    }
+
+    public function eegStudies(): HasMany
+    {
+        return $this->hasMany(EegStudy::class, 'uploaded_by');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Helpers Operativos Multiclínica
+    |--------------------------------------------------------------------------
+    */
+
+    public function primaryClinic(): ?Clinic
+    {
+        $pivotClinic = $this->clinics()->wherePivot('is_primary', true)->first();
+
+        if ($pivotClinic instanceof Clinic) {
+            return $pivotClinic;
+        }
+
+        $directClinic = $this->clinic()->first();
+
+        if ($directClinic instanceof Clinic) {
+            return $directClinic;
+        }
+
+        if ($this->clinic_id) {
+            return Clinic::query()->find((int) $this->clinic_id);
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    public function accessibleClinicIds(): array
+    {
+        if ($this->isAdmin()) {
+            return Clinic::query()->pluck('id')->map(fn ($id) => (int) $id)->all();
+        }
+
+        $pivotIds = $this->clinics()->pluck('clinics.id')->map(fn ($id) => (int) $id)->all();
+
+        if ($this->clinic_id) {
+            $pivotIds[] = (int) $this->clinic_id;
+        }
+
+        return array_values(array_unique(array_filter(array_map('intval', $pivotIds))));
+    }
+
+    public function canAccessClinic(int $clinicId): bool
+    {
+        if ($clinicId <= 0) {
+            return false;
+        }
+
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return in_array($clinicId, $this->accessibleClinicIds(), true);
     }
 }

@@ -18,6 +18,11 @@ class Expense extends Model
         'has_invoice' => 'boolean',
     ];
 
+    public function clinic(): BelongsTo
+    {
+        return $this->belongsTo(Clinic::class);
+    }
+
     public function category(): BelongsTo
     {
         return $this->belongsTo(ExpenseCategory::class, 'expense_category_id');

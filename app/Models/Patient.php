@@ -1,10 +1,11 @@
 <?php
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Patient extends Model
 {
@@ -13,8 +14,10 @@ class Patient extends Model
     protected $guarded = ['id'];
 
     protected $casts = [
-        'birthdate' => 'date',
-        'custom_fields' => 'array',
+        'birthdate'        => 'date',
+        'eeg_scheduled_at' => 'datetime',
+        'custom_fields'    => 'array',
+        'clinic_id'        => 'integer',
     ];
 
     // Relación con el Lead originario (si vino por pauta digital)
@@ -32,5 +35,10 @@ class Patient extends Model
     public function clinic(): BelongsTo
     {
         return $this->belongsTo(Clinic::class);
+    }
+
+    public function eegStudies(): HasMany
+    {
+        return $this->hasMany(EegStudy::class);
     }
 }
