@@ -7,67 +7,39 @@ use App\Filament\Admin\Widgets\CampaignSourceChart;
 use App\Filament\Admin\Widgets\CampaignStatsOverview;
 use App\Filament\Admin\Widgets\GeneralStatsWidget;
 use App\Filament\Admin\Widgets\LeadsByCityChart;
-use App\Filament\Admin\Widgets\LeadsByLandingChart; // <-- Importar
+use App\Filament\Admin\Widgets\LeadsByLandingChart;
 use App\Filament\Admin\Widgets\LeadsByMonthChart;
 use App\Filament\Admin\Widgets\LeadsBySymptomChart;
-use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Section;
-use Filament\Forms\Form;
+use App\Models\User;
 use Filament\Pages\Dashboard as BaseDashboard;
-use Filament\Pages\Dashboard\Concerns\HasFiltersForm;
+use Filament\Widgets\AccountWidget;
 
 class Dashboard extends BaseDashboard
 {
-    use HasFiltersForm;
-
-    protected static ?string $title = 'Panel de Control';
-
-    public static function getNavigationLabel(): string
+    public static function canAccess(): bool
     {
-        return 'Inicio';
-    }
+        /** @var User|null $user */
+        $user = auth()->user();
 
-    public function getColumns(): int | string | array
-    {
-        return 2;
-    }
+        if (! $user instanceof User) {
+            return false;
+        }
 
-    public function filtersForm(Form $form): Form
-    {
-        return $form
-            ->schema([
-                Section::make('Filtros de Período')
-                    ->description('Ajusta el rango de fechas para actualizar en tiempo real las métricas y gráficos.')
-                    ->schema([
-                        DatePicker::make('startDate')
-                            ->label('Fecha Inicial')
-                            ->placeholder('Inicio del período')
-                            ->native(false)
-                            ->maxDate(now()),
-
-                        DatePicker::make('endDate')
-                            ->label('Fecha Final')
-                            ->placeholder('Fin del período')
-                            ->native(false)
-                            ->afterOrEqual('startDate')
-                            ->maxDate(now()),
-                    ])
-                    ->columns(2)
-                    ->collapsible(),
-            ]);
+        return $user->isAdmin() || $user->isZoneManager();
     }
 
     public function getWidgets(): array
     {
         return [
+            AccountWidget::class,
             GeneralStatsWidget::class,
-            CampaignStatsOverview::class,
-            LeadsByLandingChart::class,       // <-- Nuevo gráfico de Landings
-            CampaignSourceChart::class,
             LeadsByMonthChart::class,
             LeadsByCityChart::class,
             LeadsBySymptomChart::class,
+            CampaignStatsOverview::class,
+            CampaignSourceChart::class,
             CampaignPerformanceTable::class,
+            LeadsByLandingChart::class,
         ];
     }
 }

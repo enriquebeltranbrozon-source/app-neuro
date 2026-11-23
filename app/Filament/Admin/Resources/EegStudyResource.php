@@ -3,14 +3,13 @@
 namespace App\Filament\Admin\Resources;
 
 use App\Filament\Admin\Resources\EegStudyResource\Pages;
-use App\Models\Clinic;
 use App\Models\EegStudy;
 use App\Models\Patient;
 use App\Models\User;
 use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Forms\Get;
 use Filament\Forms\Set;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -157,31 +156,31 @@ class EegStudyResource extends Resource
                     ->icon('heroicon-o-user-plus')
                     ->schema([
                         Forms\Components\Select::make('patient_id')
-                        ->label('Paciente')
-                        ->relationship(
-                            name: 'patient',
-                            titleAttribute: 'full_name',
-                            modifyQueryUsing: function (Builder $query) {
-                                /** @var User|null $actor */
-                                $actor = auth()->user();
+                            ->label('Paciente')
+                            ->relationship(
+                                name: 'patient',
+                                titleAttribute: 'full_name',
+                                modifyQueryUsing: function (Builder $query) {
+                                    /** @var User|null $actor */
+                                    $actor = auth()->user();
 
-                                if (! $actor instanceof User) {
-                                    return $query->whereRaw('1 = 0');
+                                    if (! $actor instanceof User) {
+                                        return $query->whereRaw('1 = 0');
+                                    }
+
+                                    if ($actor->isAdmin()) {
+                                        return $query;
+                                    }
+
+                                    $clinicIds = $actor->accessibleClinicIds();
+
+                                    if (empty($clinicIds)) {
+                                        return $query->whereRaw('1 = 0');
+                                    }
+
+                                    return $query->whereIn('patients.clinic_id', $clinicIds);
                                 }
-
-                                if ($actor->isAdmin()) {
-                                    return $query;
-                                }
-
-                                $clinicIds = $actor->accessibleClinicIds();
-
-                                if (empty($clinicIds)) {
-                                    return $query->whereRaw('1 = 0');
-                                }
-
-                                return $query->whereIn('patients.clinic_id', $clinicIds);
-                            }
-                        )
+                            )
                             ->live()
                             ->afterStateUpdated(function (?string $state, Set $set): void {
                                 if (blank($state)) {
@@ -229,11 +228,33 @@ class EegStudyResource extends Resource
                             ->preload()
                             ->required(),
 
+                        Forms\Components\Select::make('status')
+                            ->label('Estado del Estudio')
+                            ->options([
+                                'scheduled' => 'Programado',
+                                'completed' => 'Completado',
+                                'external'  => 'Externo',
+                            ])
+                            ->default('scheduled')
+                            ->native(false)
+                            ->required(),
+                        
                         Forms\Components\TextInput::make('title')
                             ->label('Título o Tipo de Estudio')
                             ->placeholder('Ej. EEG Basal Inicial / QEEG Pre-Protocolo')
                             ->required()
                             ->maxLength(255),
+
+                         Forms\Components\Select::make('status')
+                            ->label('Estado del Estudio')
+                            ->options([
+                                'scheduled' => 'Programado',
+                                'completed' => 'Completado',
+                                'external'  => 'Externo',
+                            ])
+                            ->default('scheduled')
+                            ->native(false)
+                            ->required(),
 
                         Forms\Components\DatePicker::make('study_date')
                             ->label('Fecha del Estudio')
@@ -242,7 +263,7 @@ class EegStudyResource extends Resource
                     ])->columns(2),
 
                 Forms\Components\Section::make('Archivo del Repositorio')
-                    ->description('Carga el documento o registro del estudio en el repositorio clínico.')
+                    ->description('Puedes agendar o registrar el estudio ahora y adjuntar el archivo cuando esté listo.')
                     ->icon('heroicon-o-arrow-up-tray')
                     ->schema([
                         Forms\Components\FileUpload::make('file_path')
@@ -268,7 +289,6 @@ class EegStudyResource extends Resource
                                     $set('mime_type', $state->getMimeType());
                                 }
                             })
-                            ->required()
                             ->columnSpanFull(),
 
                         Forms\Components\Hidden::make('original_filename'),
@@ -287,13 +307,19 @@ class EegStudyResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->defaultSort('created_at', 'desc')
+            ->defaultSort('study_date', 'desc')
             ->columns([
+                Tables\Columns\TextColumn::make('study_date')
+                    ->label('Fecha Estudio')
+                    ->date('d/m/Y')
+                    ->sortable()
+                    ->placeholder('Por programar'),
+
                 Tables\Columns\TextColumn::make('patient.name')
                     ->label('Paciente')
                     ->searchable()
                     ->sortable(),
-
+             
                 Tables\Columns\TextColumn::make('title')
                     ->label('Estudio')
                     ->searchable()
@@ -305,17 +331,33 @@ class EegStudyResource extends Resource
                     ->sortable()
                     ->placeholder('—'),
 
-                Tables\Columns\TextColumn::make('study_date')
-                    ->label('Fecha Estudio')
-                    ->date('d/m/Y')
-                    ->sortable()
-                    ->placeholder('—'),
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Estado')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                        'completed' => 'Completado',
+                        'external'  => 'Externo',
+                        default     => 'Programado',
+                    })
+                    ->color(fn (?string $state): string => match ($state) {
+                        'completed' => 'success',
+                        'external'  => 'info',
+                        default     => 'warning',
+                    })
+                    ->sortable(),
+
+                Tables\Columns\TextColumn::make('file_path')
+                    ->label('Estado Archivo')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state): string => filled($state) ? 'Cargado' : 'Pendiente')
+                    ->color(fn (?string $state): string => filled($state) ? 'success' : 'warning'),
 
                 Tables\Columns\TextColumn::make('original_filename')
                     ->label('Archivo')
                     ->searchable()
                     ->limit(32)
-                    ->tooltip(fn (EegStudy $record): ?string => $record->original_filename),
+                    ->tooltip(fn (EegStudy $record): ?string => $record->original_filename)
+                    ->placeholder('Sin archivo'),
 
                 Tables\Columns\TextColumn::make('uploader.name')
                     ->label('Subido por')
@@ -323,9 +365,10 @@ class EegStudyResource extends Resource
                     ->placeholder('—'),
 
                 Tables\Columns\TextColumn::make('created_at')
-                    ->label('Cargado')
+                    ->label('Creado')
                     ->dateTime('d/m/Y H:i')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('clinic_id')
@@ -344,8 +387,86 @@ class EegStudyResource extends Resource
 
                         return $query->whereIn('clinics.id', $actor->accessibleClinicIds());
                     }),
+
+                Tables\Filters\TernaryFilter::make('has_file')
+                    ->label('Archivo del estudio')
+                    ->placeholder('Todos los estudios')
+                    ->trueLabel('Con archivo cargado')
+                    ->falseLabel('Pendientes de archivo')
+                    ->queries(
+                        true: fn (Builder $query): Builder => $query->whereNotNull('file_path')->where('file_path', '!=', ''),
+                        false: fn (Builder $query): Builder => $query->where(function (Builder $q): void {
+                            $q->whereNull('file_path')->orWhere('file_path', '');
+                        }),
+                        blank: fn (Builder $query): Builder => $query,
+                    ),
+
+                Tables\Filters\Filter::make('today')
+                    ->label('Programados hoy')
+                    ->query(fn (Builder $query): Builder => $query->whereDate('study_date', today())),
             ])
             ->actions([
+                Tables\Actions\Action::make('quick_upload')
+                    ->label(fn (EegStudy $record): string => filled($record->file_path) ? 'Reemplazar archivo' : 'Subir archivo')
+                    ->icon('heroicon-o-arrow-up-tray')
+                    ->color(fn (EegStudy $record): string => filled($record->file_path) ? 'gray' : 'primary')
+                    ->visible(fn (EegStudy $record): bool => static::canEdit($record))
+                    ->modalHeading(fn (EegStudy $record): string => 'Cargar archivo EEG — ' . ($record->patient?->name ?? $record->title))
+                    ->form([
+                        Forms\Components\FileUpload::make('file_path')
+                            ->label('Archivo del Estudio EEG')
+                            ->disk('local')
+                            ->directory('eeg-studies')
+                            ->visibility('private')
+                            ->preserveFilenames()
+                            ->maxSize(102400)
+                            ->acceptedFileTypes([
+                                'application/pdf',
+                                'image/png',
+                                'image/jpeg',
+                                'application/zip',
+                                'application/x-zip-compressed',
+                                'text/plain',
+                                'application/octet-stream',
+                            ])
+                            ->required(),
+
+                        Forms\Components\Textarea::make('notes')
+                            ->label('Notas Técnicas')
+                            ->default(fn (EegStudy $record): ?string => $record->notes)
+                            ->rows(3)
+                            ->maxLength(2000),
+                    ])
+                    ->action(function (EegStudy $record, array $data): void {
+                        /** @var User|null $actor */
+                        $actor = auth()->user();
+                        $disk = Storage::disk('local');
+                        $path = $data['file_path'] ?? null;
+
+                        $updates = [
+                            'file_path' => $path,
+                            'notes' => $data['notes'] ?? $record->notes,
+                        ];
+
+                        if ($actor instanceof User) {
+                            $updates['uploaded_by'] = $actor->id;
+                        }
+
+                        if (filled($path) && $disk->exists($path)) {
+                            $updates['original_filename'] = basename($path);
+                            $updates['file_size'] = $disk->size($path);
+                            $updates['mime_type'] = $disk->mimeType($path);
+                        }
+
+                        $record->update($updates);
+
+                        Notification::make()
+                            ->title('Archivo EEG guardado')
+                            ->body('El estudio quedó vinculado al paciente y disponible para el equipo clínico.')
+                            ->success()
+                            ->send();
+                    }),
+
                 Tables\Actions\Action::make('download')
                     ->label('Descargar')
                     ->icon('heroicon-o-arrow-down-tray')

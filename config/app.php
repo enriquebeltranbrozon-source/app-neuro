@@ -32,6 +32,8 @@ return [
 
     'debug' => (bool) env('APP_DEBUG', false),
 
+    'setup_token' => env('SETUP_SECRET_TOKEN'),
+
     /*
     |--------------------------------------------------------------------------
     | Application URL & Asset URL

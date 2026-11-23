@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PatientSession extends Model
 {
@@ -43,5 +45,15 @@ class PatientSession extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    public function protocolSession(): HasOne
+    {
+        return $this->hasOne(ProtocolSession::class, 'patient_session_id');
+    }
+
+    public function scopeStandalone(Builder $query): Builder
+    {
+        return $query->whereDoesntHave('protocolSession');
     }
 }

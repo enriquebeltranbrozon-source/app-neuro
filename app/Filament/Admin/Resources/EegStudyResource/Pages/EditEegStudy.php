@@ -69,6 +69,8 @@ class EditEegStudy extends EditRecord
                 $data['file_size'] = $disk->size($data['file_path']);
                 $data['mime_type'] = $disk->mimeType($data['file_path']);
             }
+        } elseif (empty($data['file_path']) && filled($record->file_path)) {
+            $data['file_path'] = $record->file_path;
         }
 
         return $data;

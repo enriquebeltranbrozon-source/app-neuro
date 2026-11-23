@@ -2,7 +2,6 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -396,69 +395,125 @@ return new class extends Migration
 
                 $table->timestamps();
 
+                $table->index(['patient_id', 'session_number']);
                 $table->index(['clinic_id', 'started_at']);
+                $table->index(['clinic_id', 'payment_status', 'started_at'], 'ps_clinic_payment_started_idx');
             });
         }
 
-         // ==========================================
-        // . MÓDULO DE EEG
+        // ==========================================
+        // 5. MÓDULO DE EEG
         // ==========================================
 
-        Schema::create('eeg_studies', function (Blueprint $table) {
-        $table->id();
+        if (! Schema::hasTable('eeg_studies')) {
+            Schema::create('eeg_studies', function (Blueprint $table) {
+                $table->id();
 
-        // Relaciones principales y trazabilidad de actores
-        $table->foreignId('patient_id')
-            ->constrained('patients')
-            ->cascadeOnDelete();
+                // Relaciones principales y trazabilidad de actores
+                $table->foreignId('patient_id')
+                    ->constrained('patients')
+                    ->cascadeOnDelete();
 
-        $table->foreignId('clinic_id')
-            ->nullable()
-            ->constrained('clinics')
-            ->nullOnDelete();
+                $table->foreignId('clinic_id')
+                    ->nullable()
+                    ->constrained('clinics')
+                    ->nullOnDelete();
 
-        $table->foreignId('requested_by')
-            ->nullable()
-            ->constrained('users')
-            ->nullOnDelete();
+                $table->foreignId('requested_by')
+                    ->nullable()
+                    ->constrained('users')
+                    ->nullOnDelete();
 
-        $table->foreignId('assigned_technician_id')
-            ->nullable()
-            ->constrained('users')
-            ->nullOnDelete();
+                $table->foreignId('assigned_technician_id')
+                    ->nullable()
+                    ->constrained('users')
+                    ->nullOnDelete();
 
-        $table->foreignId('uploaded_by')
-            ->nullable()
-            ->constrained('users')
-            ->nullOnDelete();
+                $table->foreignId('uploaded_by')
+                    ->nullable()
+                    ->constrained('users')
+                    ->nullOnDelete();
 
-        // Flujo de agenda y estado del estudio
-        $table->string('status', 30)->default('scheduled'); // 'scheduled' | 'completed' | 'external'
-        $table->boolean('is_external')->default(false);
-        $table->dateTime('scheduled_at')->nullable();
-        $table->dateTime('completed_at')->nullable();
+                // Flujo de agenda y estado del estudio
+                $table->string('status', 30)->default('scheduled'); // 'scheduled' | 'completed' | 'external'
+                $table->boolean('is_external')->default(false);
+                $table->dateTime('scheduled_at')->nullable();
+                $table->dateTime('completed_at')->nullable();
 
-        // Metadatos clínicos y archivo en repositorio
-        $table->string('title', 255); // Ej. "EEG Basal Inicial"
-        $table->date('study_date')->nullable();
-        $table->string('file_path', 500)->nullable();
-        $table->string('original_filename', 255)->nullable();
-        $table->string('mime_type', 120)->nullable();
-        $table->unsignedBigInteger('file_size')->nullable(); // bytes
-        $table->text('notes')->nullable(); // Indicaciones previas u observaciones técnicas
+                // Metadatos clínicos y archivo en repositorio
+                $table->string('title', 255); // Ej. "EEG Basal Inicial"
+                $table->date('study_date')->nullable();
+                $table->string('file_path', 500)->nullable();
+                $table->string('original_filename', 255)->nullable();
+                $table->string('mime_type', 120)->nullable();
+                $table->unsignedBigInteger('file_size')->nullable(); // bytes
+                $table->text('notes')->nullable(); // Indicaciones previas u observaciones técnicas
 
-        $table->timestamps();
-        $table->softDeletes();
+                $table->timestamps();
+                $table->softDeletes();
 
-        // Índices de rendimiento para agenda del técnico y repositorio por clínica/paciente
-        $table->index(['patient_id', 'status', 'created_at'], 'eeg_patient_status_created_idx');
-        $table->index(['clinic_id', 'status', 'scheduled_at'], 'eeg_clinic_status_scheduled_idx');
-        $table->index(['assigned_technician_id', 'status', 'scheduled_at'], 'eeg_tech_status_scheduled_idx');
-        $table->index(['clinic_id', 'study_date'], 'eeg_clinic_study_date_idx');
-    });
+                // Índices de rendimiento para agenda del técnico y repositorio por clínica/paciente
+                $table->index(['patient_id', 'status', 'created_at'], 'eeg_patient_status_created_idx');
+                $table->index(['clinic_id', 'status', 'scheduled_at'], 'eeg_clinic_status_scheduled_idx');
+                $table->index(['assigned_technician_id', 'status', 'scheduled_at'], 'eeg_tech_status_scheduled_idx');
+                $table->index(['clinic_id', 'study_date'], 'eeg_clinic_study_date_idx');
+            });
+        }
 
         // ==========================================
-        // 5. MÓDULO DE FINANZAS Y EGRESOS
+        // 6. MÓDULO DE PROTOCOLOS
+        // ==========================================
+
+        if (! Schema::hasTable('protocols')) {
+            Schema::create('protocols', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('patient_id')->constrained('patients')->cascadeOnDelete();
+                $table->foreignId('eeg_study_id')->nullable()->constrained('eeg_studies')->nullOnDelete();
+                $table->foreignId('clinic_id')->nullable()->constrained('clinics')->nullOnDelete();
+                $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+
+                $table->string('title');
+                $table->string('status', 30)->default('draft'); // 'draft' | 'active' | 'completed'
+                $table->unsignedSmallInteger('total_sessions')->default(45);
+                $table->unsignedSmallInteger('recommended_frequency_per_week')->default(2);
+
+                $table->text('eeg_findings')->nullable();
+                $table->text('clinical_goals')->nullable();
+                $table->string('electrode_sites')->nullable(); // Ej. Cz, Fz, Pz, C3/C4
+                $table->text('frequency_targets')->nullable(); // Ej. Inhibir 4-8 Hz, recompensar 12-15 Hz (SMR)
+                $table->text('clinical_notes')->nullable();
+
+                $table->timestamp('approved_at')->nullable();
+                $table->timestamps();
+
+                $table->index(['patient_id', 'status']);
+                $table->index(['clinic_id', 'status']);
+            });
+        }
+
+        if (! Schema::hasTable('protocol_sessions')) {
+            Schema::create('protocol_sessions', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('protocol_id')->constrained('protocols')->cascadeOnDelete();
+                $table->foreignId('patient_session_id')
+                    ->nullable()
+                    ->constrained('patient_sessions')
+                    ->nullOnDelete();
+                $table->unsignedSmallInteger('session_number');
+                $table->string('phase')->nullable(); // Ej. Fase 1: Adaptación y línea base
+                $table->date('scheduled_date')->nullable();
+                $table->string('status', 30)->default('pending'); // 'pending' | 'completed' | 'missed'
+                $table->text('session_notes')->nullable();
+                $table->timestamps();
+
+                $table->unique('patient_session_id');
+                $table->unique(['protocol_id', 'session_number']);
+                $table->index(['protocol_id', 'status']);
+            });
+        }
+
+        // ==========================================
+        // 7. MÓDULO DE FINANZAS Y EGRESOS
         // ==========================================
 
         if (! Schema::hasTable('expense_categories')) {
@@ -499,12 +554,15 @@ return new class extends Migration
         }
     }
 
-   public function down(): void
+    public function down(): void
     {
         Schema::disableForeignKeyConstraints();
 
         Schema::dropIfExists('expenses');
         Schema::dropIfExists('expense_categories');
+        Schema::dropIfExists('protocol_sessions');
+        Schema::dropIfExists('protocols');
+        Schema::dropIfExists('eeg_studies');
         Schema::dropIfExists('patient_sessions');
         Schema::dropIfExists('patients');
         Schema::dropIfExists('clinic_service');

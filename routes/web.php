@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ProtocolPdfController;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 
@@ -9,22 +10,27 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-// 1. Redirección de la ruta raíz al panel administrativo
 Route::get('/', function () {
     return redirect('/admin-nfc');
 });
 
-// 2. Ruta de Setup / Inicialización de Desarrollo (Blindada)
+Route::middleware(['auth', 'throttle:30,1'])
+    ->prefix('admin-nfc')
+    ->group(function (): void {
+        Route::get('/protocols/{protocol}/pdf', ProtocolPdfController::class)
+            ->whereNumber('protocol')
+            ->name('admin.protocols.pdf');
+    });
+
 Route::get('/admin-nfc-setup', function () {
-    // BLINDAJE 1: Bloqueo estricto en entorno de Producción
     if (app()->isProduction()) {
         abort(403, 'Acceso denegado. Esta herramienta de reconstrucción está deshabilitada en entorno de producción.');
     }
 
-    // BLINDAJE 2: Validación de Token Secreto por URL (?token=...)
-    $requiredToken = config('app.setup_token', env('SETUP_SECRET_TOKEN', 'nfc_dev_setup_2026'));
-    
-    if (request('token') !== $requiredToken) {
+    $requiredToken = (string) config('app.setup_token', '');
+    $providedToken = (string) request()->query('token', '');
+
+    if ($requiredToken === '' || $providedToken === '' || ! hash_equals($requiredToken, $providedToken)) {
         return response()->json([
             'success' => false,
             'message' => 'Acceso no autorizado. Token de desarrollo no válido o ausente (?token=...).',
@@ -32,31 +38,28 @@ Route::get('/admin-nfc-setup', function () {
     }
 
     try {
-        // 1. Limpieza total de cachés de configuración y rutas
         Artisan::call('optimize:clear');
 
-        // 2. Creación del enlace simbólico a storage (solo si no existe)
-        if (!file_exists(public_path('storage'))) {
+        if (! file_exists(public_path('storage'))) {
             Artisan::call('storage:link');
         }
 
-        // 3. Ejecución segura de migraciones y seeders
         Artisan::call('migrate:fresh', [
             '--seed'  => true,
             '--force' => true,
         ]);
 
         return response()->json([
-            'success' => true,
-            'message' => '¡Arquitectura sincronizada! Base de datos construida y poblada con éxito.',
+            'success'     => true,
+            'message'     => '¡Arquitectura sincronizada! Base de datos construida y poblada con éxito.',
             'environment' => app()->environment(),
         ]);
-
     } catch (\Throwable $e) {
+        report($e);
+
         return response()->json([
             'success' => false,
             'message' => 'Error durante el setup de la base de datos.',
-            'error'   => $e->getMessage(),
         ], 500);
     }
 });

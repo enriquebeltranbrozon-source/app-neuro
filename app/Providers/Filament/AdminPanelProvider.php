@@ -11,6 +11,11 @@ use App\Filament\Admin\Widgets\CampaignPerformanceTable;
 use App\Filament\Admin\Widgets\CampaignSourceChart;
 use App\Filament\Admin\Widgets\CampaignStatsOverview;
 use App\Filament\Admin\Widgets\LeadsByLandingChart; // <-- 1. Importar el widget
+use App\Filament\Admin\Widgets\EegTechnicianStatsWidget;
+use App\Filament\Admin\Widgets\UpcomingEegStudiesWidget;
+use App\Filament\Admin\Widgets\TherapistReadyStudiesWidget;
+use App\Filament\Admin\Widgets\TherapistStatsWidget;
+use App\Http\Middleware\RedirectByRole;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
@@ -66,7 +71,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             
             // 4. REGISTRO UNIFICADO Y LIMPIO DE WIDGETS
-            ->widgets([
+           ->widgets([
                 AccountWidget::class,
                 GeneralStatsWidget::class,
                 LeadsByMonthChart::class,
@@ -75,7 +80,11 @@ class AdminPanelProvider extends PanelProvider
                 CampaignStatsOverview::class,
                 CampaignSourceChart::class,
                 CampaignPerformanceTable::class,
-                LeadsByLandingChart::class, // <-- 2. Registrar aquí para que Livewire lo reconozca
+                LeadsByLandingChart::class,
+                EegTechnicianStatsWidget::class,
+                UpcomingEegStudiesWidget::class,
+                TherapistStatsWidget::class,
+                TherapistReadyStudiesWidget::class,
             ])
             
             // 5. MIDDLEWARE Y SEGURIDAD
@@ -89,6 +98,7 @@ class AdminPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
+                RedirectByRole::class,
             ])
             ->authMiddleware([
                 Authenticate::class,
