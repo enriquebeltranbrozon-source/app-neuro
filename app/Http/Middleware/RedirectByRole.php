@@ -30,6 +30,10 @@ class RedirectByRole
             return $next($request);
         }
 
+        if ($user->isZoneManager()) {
+                return redirect()->to(ZoneManagerDashboard::getUrl(panel: 'admin-nfc'));
+            }
+
         if ($user->isEegTechnician()) {
             return redirect()->to(EegTechnicianDashboard::getUrl(panel: 'admin-nfc'));
         }

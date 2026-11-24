@@ -1,42 +1,83 @@
 #!/usr/bin/env bash
+set -u
 
-# Salir limpiamente y matar todos los procesos en segundo plano al presionar Ctrl+C
-trap 'kill 0' EXIT
-
-# Definir la ruta base del proyecto de forma absoluta
 PROJECT_DIR="/home/cbm/nfc-api"
+LARAVEL_HOST="127.0.0.1"
+LARAVEL_PORT="8000"
+
+PIDS=()
+
+cleanup() {
+    echo ""
+    echo "🛑 Deteniendo servicios del entorno local..."
+    for pid in "${PIDS[@]:-}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+    wait 2>/dev/null || true
+    echo "✅ Entorno detenido limpiamente."
+}
+
+trap cleanup EXIT INT TERM
 
 echo "🧠 Iniciando entorno de desarrollo para Neurofeedback Center (nfc-api)..."
 
-# Validar que la carpeta public exista antes de arrancar
-if [ ! -d "$PROJECT_DIR/public" ]; then
-    echo "❌ Error crítico: No se encuentra la carpeta public en $PROJECT_DIR"
+if [ ! -d "$PROJECT_DIR" ] || [ ! -d "$PROJECT_DIR/public" ]; then
+    echo "❌ Error crítico: No se encuentra $PROJECT_DIR o su carpeta public/."
     exit 1
 fi
 
-# Movernos al directorio del proyecto
 cd "$PROJECT_DIR" || exit 1
 
-# 1. Servidor de desarrollo Laravel (Forzando la ruta raíz del proyecto)
-php artisan serve --host=127.0.0.1 --port=8000 &
-
-sudo systemctl status mysql
-sudo systemctl start mysql
-
-# 2. Compilador de assets (Vite / Tailwind / Panel de Filament)
-npm run dev &
-
-# 3. Capturador y servidor de correos de prueba (Mailpit)
-if command -v mailpit &> /dev/null; then
-    mailpit &
-else
-    echo "⚠️ Mailpit no está instalado o no se encuentra en el PATH."
+if [ ! -f "$PROJECT_DIR/.env" ]; then
+    echo "❌ Error crítico: Falta el archivo .env en $PROJECT_DIR"
+    exit 1
 fi
 
-# 4. (Opcional) Worker de colas para correos, notificaciones o tareas asíncronas
-# php artisan queue:work &
+for cmd in php npm; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "❌ Error crítico: '$cmd' no está disponible en el PATH."
+        exit 1
+    fi
+done
 
-echo "🚀 Todos los servicios han sido lanzados. Presiona Ctrl+C para detenerlos."
+# 1. Base de datos (MySQL / MariaDB)
+if command -v systemctl >/dev/null 2>&1; then
+    if ! systemctl is-active --quiet mysql && ! systemctl is-active --quiet mariadb; then
+        echo "🗄️ Iniciando servicio de base de datos..."
+        if ! sudo systemctl start mysql 2>/dev/null && ! sudo systemctl start mariadb 2>/dev/null; then
+            echo "⚠️ No se pudo iniciar MySQL/MariaDB automáticamente. Verifica permisos sudo o el nombre del servicio."
+        fi
+    else
+        echo "✅ Base de datos ya activa."
+    fi
+fi
 
-# Mantener el script en ejecución para mostrar logs unificados en la consola
+# Liberar puerto de Laravel si quedó algún proceso previo colgado
+if command -v fuser >/dev/null 2>&1; then
+    fuser -k "${LARAVEL_PORT}/tcp" >/dev/null 2>&1 || true
+fi
+
+# 2. Servidor Laravel
+php artisan serve --host="$LARAVEL_HOST" --port="$LARAVEL_PORT" &
+PIDS+=("$!")
+
+# 3. Compilador de assets (Vite / Tailwind / Filament)
+npm run dev &
+PIDS+=("$!")
+
+# 4. Mailpit (opcional)
+if command -v mailpit >/dev/null 2>&1; then
+    mailpit &
+    PIDS+=("$!")
+else
+    echo "ℹ️ Mailpit no está instalado; se omite."
+fi
+
+# 5. Worker de colas (opcional — descomenta si lo necesitas)
+# php artisan queue:work --tries=3 --timeout=90 &
+# PIDS+=("$!")
+
+echo "🚀 Servicios activos en http://${LARAVEL_HOST}:${LARAVEL_PORT}. Presiona Ctrl+C para detenerlos."
 wait

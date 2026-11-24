@@ -116,7 +116,7 @@ class EegStudyResource extends Resource
         /** @var User|null $user */
         $user = auth()->user();
 
-        if (! $user instanceof User) {
+        if (! $user instanceof User || ! $user->canAccessEegStudies()) {
             return $query->whereRaw('1 = 0');
         }
 
@@ -134,10 +134,9 @@ class EegStudyResource extends Resource
             return $query->whereRaw('1 = 0');
         }
 
-        return $query->where(function (Builder $q) use ($clinicIds, $user): void {
+        return $query->where(function (Builder $q) use ($clinicIds): void {
             $q->whereIn('clinic_id', $clinicIds)
-                ->orWhereHas('patient', fn (Builder $pq) => $pq->whereIn('clinic_id', $clinicIds))
-                ->orWhere('uploaded_by', $user->id);
+                ->orWhereHas('patient', fn (Builder $pq) => $pq->whereIn('clinic_id', $clinicIds));
         });
     }
 

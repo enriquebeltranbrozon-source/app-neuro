@@ -127,4 +127,17 @@ enum UserRole: string implements HasLabel, HasColor
     {
         return in_array($this, [self::Admin, self::ZoneManager, self::Marketing, self::Agent], true);
     }
+
+    /**
+     * Consulta, solicitud, captura o revisión de estudios EEG según el rol.
+     */
+    public function canAccessEegStudies(): bool
+    {
+        return in_array($this, [
+            self::Admin,
+            self::ZoneManager,
+            self::Therapist,
+            self::EegTechnician,
+        ], true);
+    }
 }

@@ -135,6 +135,10 @@ class EegStudy extends Model
 
     public function scopeForUser(Builder $query, User $user): Builder
     {
+        if (! $user->canAccessEegStudies()) {
+            return $query->whereRaw('1 = 0');
+        }
+
         if ($user->isAdmin()) {
             return $query;
         }
@@ -145,12 +149,12 @@ class EegStudy extends Model
             return $query->whereRaw('1 = 0');
         }
 
-        return $query->where(function (Builder $q) use ($clinicIds, $user): void {
+        return $query->where(function (Builder $q) use ($clinicIds): void {
             $q->whereIn('eeg_studies.clinic_id', $clinicIds)
-                ->orWhereHas('patient', fn (Builder $pq) => $pq->whereIn('patients.clinic_id', $clinicIds))
-                ->orWhere('eeg_studies.uploaded_by', $user->id)
-                ->orWhere('eeg_studies.requested_by', $user->id)
-                ->orWhere('eeg_studies.assigned_technician_id', $user->id);
+                ->orWhere(function (Builder $fallback) use ($clinicIds): void {
+                    $fallback->whereNull('eeg_studies.clinic_id')
+                        ->whereHas('patient', fn (Builder $pq) => $pq->whereIn('patients.clinic_id', $clinicIds));
+                });
         });
     }
 }

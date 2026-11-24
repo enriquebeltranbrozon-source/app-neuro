@@ -315,4 +315,9 @@ class User extends Authenticatable implements FilamentUser
 
         return in_array($clinicId, $this->accessibleClinicIds(), true);
     }
+
+    public function canAccessEegStudies(): bool
+    {
+        return $this->role?->canAccessEegStudies() ?? false;
+    }
 }

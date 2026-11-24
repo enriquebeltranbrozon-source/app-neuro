@@ -3,18 +3,20 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Admin\Pages\Dashboard;
-use App\Filament\Admin\Widgets\GeneralStatsWidget;
-use App\Filament\Admin\Widgets\LeadsByCityChart;
-use App\Filament\Admin\Widgets\LeadsByMonthChart;
-use App\Filament\Admin\Widgets\LeadsBySymptomChart;
 use App\Filament\Admin\Widgets\CampaignPerformanceTable;
 use App\Filament\Admin\Widgets\CampaignSourceChart;
 use App\Filament\Admin\Widgets\CampaignStatsOverview;
-use App\Filament\Admin\Widgets\LeadsByLandingChart; // <-- 1. Importar el widget
 use App\Filament\Admin\Widgets\EegTechnicianStatsWidget;
-use App\Filament\Admin\Widgets\UpcomingEegStudiesWidget;
+use App\Filament\Admin\Widgets\GeneralStatsWidget;
+use App\Filament\Admin\Widgets\LeadsByCityChart;
+use App\Filament\Admin\Widgets\LeadsByLandingChart;
+use App\Filament\Admin\Widgets\LeadsByMonthChart;
+use App\Filament\Admin\Widgets\LeadsBySymptomChart;
 use App\Filament\Admin\Widgets\TherapistReadyStudiesWidget;
 use App\Filament\Admin\Widgets\TherapistStatsWidget;
+use App\Filament\Admin\Widgets\UpcomingEegStudiesWidget;
+use App\Filament\Admin\Widgets\ZoneClinicsComparisonWidget;
+use App\Filament\Admin\Widgets\ZoneStatsOverviewWidget;
 use App\Http\Middleware\RedirectByRole;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -31,7 +33,6 @@ use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
-
 class AdminPanelProvider extends PanelProvider
 {
     public function panel(Panel $panel): Panel
@@ -41,13 +42,13 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin-nfc')
             ->path('admin-nfc')
             ->login()
-            
+
             // 1. IDENTIDAD DE MARCA
             ->brandName('Neurofeedback Center')
             ->brandLogo(asset('storage/images/logo.png'))
             ->brandLogoHeight('3rem')
             ->databaseNotifications() // 👈 OBLIGATORIO: Activa la campana 🔔 arriba a la derecha para ver los enlaces de descarga
-            
+
             // 2. PALETA DE COLORES (Morado NFC + Estados)
             ->colors([
                 'primary' => '#8759a5', // Morado corporativo NFC
@@ -56,7 +57,7 @@ class AdminPanelProvider extends PanelProvider
                 'danger'  => Color::Rose,
                 'info'    => Color::Blue,
             ])
-            
+
             // 3. DESCUBRIMIENTO AUTOMÁTICO DE RECURSOS Y PÁGINAS (Namespace Admin)
             ->discoverResources(
                 in: app_path('Filament/Admin/Resources'),
@@ -69,9 +70,9 @@ class AdminPanelProvider extends PanelProvider
             ->pages([
                 Dashboard::class,
             ])
-            
+
             // 4. REGISTRO UNIFICADO Y LIMPIO DE WIDGETS
-           ->widgets([
+            ->widgets([
                 AccountWidget::class,
                 GeneralStatsWidget::class,
                 LeadsByMonthChart::class,
@@ -85,8 +86,10 @@ class AdminPanelProvider extends PanelProvider
                 UpcomingEegStudiesWidget::class,
                 TherapistStatsWidget::class,
                 TherapistReadyStudiesWidget::class,
+                ZoneStatsOverviewWidget::class,
+                ZoneClinicsComparisonWidget::class,
             ])
-            
+
             // 5. MIDDLEWARE Y SEGURIDAD
             ->middleware([
                 EncryptCookies::class,
