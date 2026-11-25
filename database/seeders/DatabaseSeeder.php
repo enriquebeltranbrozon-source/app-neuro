@@ -167,5 +167,10 @@ class DatabaseSeeder extends Seeder
                 ['name' => $expCat]
             );
         }
+
+        // 7. Pregunta interactiva para poblar 100 pacientes de prueba
+        if ($this->command?->confirm('¿Deseas ejecutar también PatientSeeder (100 pacientes distribuidos por clínica, estudios EEG y protocolos)?', false)) {
+            $this->call(PatientSeeder::class);
+        }
     }
 }
