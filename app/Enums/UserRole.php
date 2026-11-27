@@ -13,6 +13,7 @@ enum UserRole: string implements HasLabel, HasColor
     case Therapist = 'terapeuta';
     case Marketing = 'marketing';
     case EegTechnician = 'eeg_technician';
+    case Patient = 'paciente';
 
     public function getLabel(): ?string
     {
@@ -23,6 +24,7 @@ enum UserRole: string implements HasLabel, HasColor
             self::Therapist => 'Terapeuta',
             self::Marketing => 'Analista de Marketing',
             self::EegTechnician => 'Técnico de EEG',
+            self::Patient => 'Paciente',
         };
     }
 
@@ -35,6 +37,7 @@ enum UserRole: string implements HasLabel, HasColor
             self::Therapist => 'success',
             self::Marketing => 'warning',
             self::EegTechnician => 'gray',
+            self::Patient => 'teal',
         };
     }
 
@@ -57,6 +60,7 @@ enum UserRole: string implements HasLabel, HasColor
             'therapist', 'clinician' => self::Therapist,
             'marketing', 'mkt' => self::Marketing,
             'eeg_technician', 'eeg', 'tecnico_eeg', 'técnico_eeg' => self::EegTechnician,
+            'patient', 'paciente' => self::Patient,
             default => null,
         };
     }
@@ -94,6 +98,19 @@ enum UserRole: string implements HasLabel, HasColor
     public function isEegTechnician(): bool
     {
         return $this === self::EegTechnician;
+    }
+
+    public function isPatient(): bool
+    {
+        return $this === self::Patient;
+    }
+
+    /**
+     * Acceso exclusivo al portal/vista del paciente.
+     */
+    public function canAccessPatientPortal(): bool
+    {
+        return $this === self::Patient;
     }
 
     /**

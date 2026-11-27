@@ -41,4 +41,9 @@ class Patient extends Model
     {
         return $this->hasMany(EegStudy::class);
     }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
 }

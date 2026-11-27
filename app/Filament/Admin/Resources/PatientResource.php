@@ -3,10 +3,13 @@
 namespace App\Filament\Admin\Resources;
 
 use App\Filament\Admin\Resources\PatientResource\Pages;
+use App\Filament\Admin\Resources\PatientResource\Schemas\PatientCardInfolist;
 use App\Models\Patient;
 use App\Models\User;
+use Closure;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -43,12 +46,36 @@ class PatientResource extends Resource
         return $user?->canAccessClinicalOperations() ?? false;
     }
 
+    public static function canView(Model $record): bool
+    {
+        /** @var User|null $user */
+        $user = auth()->user();
+
+        if (! $user instanceof User || ! $record instanceof Patient) {
+            return false;
+        }
+
+        if (! $user->canAccessClinicalOperations()) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return $record->clinic_id !== null && $user->canAccessClinic((int) $record->clinic_id);
+    }
+
     public static function canCreate(): bool
     {
         /** @var User|null $user */
         $user = auth()->user();
 
-        return $user?->canAccessClinicalOperations() ?? false;
+        if (! $user instanceof User || ! $user->canAccessClinicalOperations()) {
+            return false;
+        }
+
+        return $user->isAdmin() || ! empty($user->accessibleClinicIds());
     }
 
     public static function canEdit(Model $record): bool
@@ -145,6 +172,17 @@ class PatientResource extends Resource
 
     /*
     |--------------------------------------------------------------------------
+    | Tarjeta del Paciente (Infolist)
+    |--------------------------------------------------------------------------
+    */
+
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return PatientCardInfolist::configure($infolist);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Formulario y Tabla
     |--------------------------------------------------------------------------
     */
@@ -201,6 +239,19 @@ class PatientResource extends Resource
                             })
                             ->dehydrated()
                             ->required()
+                            ->rule(fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
+                                /** @var User|null $actor */
+                                $actor = auth()->user();
+
+                                if (! $actor instanceof User) {
+                                    $fail('No tienes autorización para asignar una sucursal.');
+                                    return;
+                                }
+
+                                if (! $actor->isAdmin() && ! $actor->canAccessClinic((int) $value)) {
+                                    $fail('No tienes acceso a la sucursal seleccionada.');
+                                }
+                            })
                             ->searchable()
                             ->preload()
                             ->label('Sucursal de Adscripción (Física o Virtual)'),
@@ -217,6 +268,7 @@ class PatientResource extends Resource
                             ->label('Correo Electrónico'),
 
                         Forms\Components\DatePicker::make('birthdate')
+                            ->maxDate(now())
                             ->label('Fecha de Nacimiento'),
                     ])->columns(2),
 
@@ -225,6 +277,8 @@ class PatientResource extends Resource
                     ->schema([
                         Forms\Components\TextInput::make('curp')
                             ->maxLength(18)
+                            ->regex('/^[A-Z]{4}\d{6}[HM][A-Z]{5}[0-9A-Z]\d$/i')
+                            ->dehydrateStateUsing(fn (?string $state): ?string => $state ? strtoupper(trim($state)) : null)
                             ->unique(ignoreRecord: true)
                             ->label('CURP'),
 
@@ -234,6 +288,7 @@ class PatientResource extends Resource
                                 'F' => 'Femenino',
                                 'O' => 'Otro',
                             ])
+                            ->in(['M', 'F', 'O'])
                             ->label('Género'),
 
                         Forms\Components\Textarea::make('address')
@@ -246,11 +301,12 @@ class PatientResource extends Resource
                             ->label('Contacto de Emergencia (Nombre)'),
 
                         Forms\Components\TextInput::make('emergency_contact_phone')
+                            ->tel()
                             ->maxLength(30)
                             ->label('Contacto de Emergencia (Teléfono)'),
                     ])->columns(2),
 
-                    Forms\Components\Section::make('Requisito de EEG Previo al Protocolo')
+                Forms\Components\Section::make('Requisito de EEG Previo al Protocolo')
                     ->description('Indica si el paciente requiere programar un estudio EEG o si cuenta con un estudio externo previo aceptado por NFC.')
                     ->schema([
                         Forms\Components\Radio::make('eeg_origin')
@@ -259,6 +315,7 @@ class PatientResource extends Resource
                                 'schedule_required' => 'Programar Estudio EEG en sucursal',
                                 'external_prior'    => 'Cuenta con EEG previo (Estudio externo)',
                             ])
+                            ->in(['schedule_required', 'external_prior'])
                             ->default('schedule_required')
                             ->live()
                             ->required()
@@ -277,8 +334,8 @@ class PatientResource extends Resource
                             ->maxLength(1000)
                             ->columnSpanFull(),
                     ])->columns(2),
-                            ]);
-                    }
+            ]);
+    }
 
     public static function table(Table $table): Table
     {
@@ -338,8 +395,9 @@ class PatientResource extends Resource
                     ->label('Sucursal'),
             ])
             ->actions([
+                Tables\Actions\ViewAction::make()
+                    ->label('Tarjeta'),
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\ViewAction::make(),
                 Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([
@@ -358,9 +416,10 @@ class PatientResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListPatients::route('/'),
+            'index'  => Pages\ListPatients::route('/'),
             'create' => Pages\CreatePatient::route('/create'),
-            'edit' => Pages\EditPatient::route('/record/{record}/edit'),
+            'view'   => Pages\ViewPatient::route('/{record}'),
+            'edit'   => Pages\EditPatient::route('/record/{record}/edit'),
         ];
     }
 }

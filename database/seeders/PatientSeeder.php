@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Enums\UserRole;
 use App\Models\Clinic;
 use App\Models\EegStudy;
 use App\Models\Patient;
@@ -10,6 +11,8 @@ use App\Models\Protocol;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 
 class PatientSeeder extends Seeder
@@ -86,6 +89,17 @@ class PatientSeeder extends Seeder
             }
         }
 
+        // Mapa de terapeutas por clínica (clinic_id directo + pivote clinic_user)
+        $therapistsByClinic = $this->buildTherapistsByClinicMap();
+
+        $mtyFallbackClinic = $clinics->first(
+            fn (Clinic $c): bool => strtoupper((string) $c->code) === 'MTY-VALLE'
+        );
+
+        $fallbackTherapistId = ($mtyFallbackClinic && $therapistsByClinic->has($mtyFallbackClinic->id))
+            ? $therapistsByClinic->get($mtyFallbackClinic->id)->first()?->id
+            : ($therapistsByClinic->flatten(1)->first()?->id ?? User::query()->value('id'));
+
         // 100 pacientes: 50 MTY/sedes, 25 Del Valle, 25 Metepec/Cuernavaca
         $clinicQueue = [];
         for ($i = 0; $i < 50; $i++) {
@@ -135,10 +149,11 @@ class PatientSeeder extends Seeder
             'Regulación emocional',
         ];
 
-        $staffUserId = User::query()->value('id');
+        $hasUserIdColumn = Schema::hasColumn('patients', 'user_id');
         $hasEegTable = Schema::hasTable('eeg_studies');
         $hasProtocolsTable = Schema::hasTable('protocols');
         $hasSessionsTable = Schema::hasTable('patient_sessions');
+        $defaultPasswordHash = Hash::make('nfc2026');
 
         for ($idx = 0; $idx < 100; $idx++) {
             $num = $idx + 1;
@@ -146,11 +161,28 @@ class PatientSeeder extends Seeder
             $studyMode = $studyModes[$idx];
             $hasProtocol = (bool) $protocolFlags[$idx];
 
+            $therapistId = $this->resolveTherapistIdForClinic(
+                clinicId: $clinicId,
+                index: $idx,
+                therapistsByClinic: $therapistsByClinic,
+                fallbackTherapistId: $fallbackTherapistId
+            );
+
             $firstName = $firstNames[$idx % count($firstNames)];
             $lastName1 = $lastNames[$idx % count($lastNames)];
             $lastName2 = $lastNames[($idx + 7) % count($lastNames)];
             $fullName = "{$firstName} {$lastName1} {$lastName2}";
             $email = "paciente.seed.{$num}@neurofeedback.mx";
+
+            $patientUser = User::query()->updateOrCreate(
+                ['email' => $email],
+                [
+                    'name'      => $fullName,
+                    'password'  => $defaultPasswordHash,
+                    'role'      => UserRole::Patient->value,
+                    'clinic_id' => $clinicId,
+                ]
+            );
 
             $scheduledAt = $studyMode === 'scheduled'
                 ? Carbon::now()->addDays(($idx % 14) + 1)->setTime(10 + ($idx % 7), 0)
@@ -158,26 +190,32 @@ class PatientSeeder extends Seeder
 
             $symptom = $symptoms[$idx % count($symptoms)];
 
+            $patientAttributes = [
+                'clinic_id'           => $clinicId,
+                'registration_source' => $studyMode === 'external' ? 'front_desk' : 'digital_lead',
+                'full_name'           => $fullName,
+                'phone'               => sprintf('55%08d', 40000000 + $num),
+                'birthdate'           => Carbon::now()->subYears(12 + ($idx % 45))->subDays($idx * 11)->toDateString(),
+                'gender'              => ['F', 'M', 'O'][$idx % 3],
+                'eeg_origin'          => $studyMode === 'external' ? 'external_prior' : 'schedule_required',
+                'eeg_scheduled_at'    => $scheduledAt,
+                'eeg_notes'           => $symptom . ($hasProtocol ? ' | Protocolo diseñado.' : ' | Pendiente de protocolo.'),
+                'custom_fields'       => [
+                    'main_symptom'    => $symptom,
+                    'protocol_status' => $hasProtocol ? 'designed' : 'pending',
+                    'seeded'          => true,
+                ],
+                'status'              => 'active',
+            ];
+
+            if ($hasUserIdColumn) {
+                $patientAttributes['user_id'] = $patientUser->id;
+            }
+
             /** @var Patient $patient */
             $patient = Patient::query()->updateOrCreate(
                 ['email' => $email],
-                [
-                    'clinic_id'           => $clinicId,
-                    'registration_source' => $studyMode === 'external' ? 'front_desk' : 'digital_lead',
-                    'full_name'           => $fullName,
-                    'phone'               => sprintf('55%08d', 40000000 + $num),
-                    'birthdate'           => Carbon::now()->subYears(12 + ($idx % 45))->subDays($idx * 11)->toDateString(),
-                    'gender'              => ['F', 'M', 'O'][$idx % 3],
-                    'eeg_origin'          => $studyMode === 'external' ? 'external_prior' : 'schedule_required',
-                    'eeg_scheduled_at'    => $scheduledAt,
-                    'eeg_notes'           => $symptom . ($hasProtocol ? ' | Protocolo diseñado.' : ' | Pendiente de protocolo.'),
-                    'custom_fields'       => [
-                        'main_symptom'    => $symptom,
-                        'protocol_status' => $hasProtocol ? 'designed' : 'pending',
-                        'seeded'          => true,
-                    ],
-                    'status'              => 'active',
-                ]
+                $patientAttributes
             );
 
             $eegStudy = null;
@@ -207,11 +245,11 @@ class PatientSeeder extends Seeder
                             : 'Cita asignada para toma de estudio EEG.'),
                 ];
 
-                if ($staffUserId) {
-                    $studyAttributes['requested_by'] = $staffUserId;
+                if ($therapistId) {
+                    $studyAttributes['requested_by'] = $therapistId;
                     if ($studyMode !== 'scheduled') {
-                        $studyAttributes['uploaded_by'] = $staffUserId;
-                        $studyAttributes['assigned_technician_id'] = $staffUserId;
+                        $studyAttributes['uploaded_by'] = $therapistId;
+                        $studyAttributes['assigned_technician_id'] = $therapistId;
                     }
                 }
 
@@ -234,7 +272,7 @@ class PatientSeeder extends Seeder
                         [
                             'eeg_study_id'                   => $eegStudy?->id,
                             'clinic_id'                      => $clinicId,
-                            'created_by'                     => $staffUserId,
+                            'created_by'                     => $therapistId,
                             'status'                         => 'active',
                             'total_sessions'                 => 40,
                             'recommended_frequency_per_week' => 2,
@@ -248,7 +286,7 @@ class PatientSeeder extends Seeder
                     );
                 }
 
-                if ($hasSessionsTable && $staffUserId) {
+                if ($hasSessionsTable && $therapistId) {
                     PatientSession::query()->updateOrCreate(
                         [
                             'patient_id'     => $patient->id,
@@ -256,7 +294,7 @@ class PatientSeeder extends Seeder
                         ],
                         [
                             'clinic_id'        => $clinicId,
-                            'user_id'          => $staffUserId,
+                            'user_id'          => $therapistId,
                             'modality'         => 'in_person',
                             'started_at'       => Carbon::now()->subDays(1 + ($idx % 10))->setTime(11, 0),
                             'ended_at'         => Carbon::now()->subDays(1 + ($idx % 10))->setTime(11, 50),
@@ -273,6 +311,62 @@ class PatientSeeder extends Seeder
             }
         }
 
-        $this->command?->info('PatientSeeder completado: 100 pacientes (50 MTY/sedes, 25 Del Valle, 25 Metepec/Cuernavaca; 10 ext, 70 tomados, 20 pend; 40 con protocolo).');
+        $this->command?->info('PatientSeeder completado: 100 pacientes con usuario rol paciente (password: nfc2026) y terapeuta de su clínica.');
+    }
+
+    /**
+     * Agrupa terapeutas por clinic_id usando tanto clinic_id directo como la relación clinics().
+     *
+     * @return Collection<int, Collection<int, User>>
+     */
+    protected function buildTherapistsByClinicMap(): Collection
+    {
+        $therapists = User::query()
+            ->with('clinics:id')
+            ->where('role', UserRole::Therapist->value)
+            ->orderBy('id')
+            ->get();
+
+        /** @var array<int, array<int, User>> $buckets */
+        $buckets = [];
+
+        foreach ($therapists as $therapist) {
+            $clinicIds = $therapist->clinics
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            if ($therapist->clinic_id) {
+                $clinicIds[] = (int) $therapist->clinic_id;
+            }
+
+            foreach (array_unique($clinicIds) as $cId) {
+                if ($cId > 0) {
+                    $buckets[$cId][$therapist->id] = $therapist;
+                }
+            }
+        }
+
+        return collect($buckets)->map(fn (array $users) => collect(array_values($users)));
+    }
+
+    /**
+     * @param Collection<int, Collection<int, User>> $therapistsByClinic
+     */
+    protected function resolveTherapistIdForClinic(
+        int $clinicId,
+        int $index,
+        Collection $therapistsByClinic,
+        ?int $fallbackTherapistId
+    ): ?int {
+        /** @var Collection<int, User>|null $clinicTherapists */
+        $clinicTherapists = $therapistsByClinic->get($clinicId);
+
+        if ($clinicTherapists && $clinicTherapists->isNotEmpty()) {
+            $chosen = $clinicTherapists[$index % $clinicTherapists->count()];
+            return (int) $chosen->id;
+        }
+
+        return $fallbackTherapistId;
     }
 }

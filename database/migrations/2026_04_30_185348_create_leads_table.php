@@ -326,42 +326,43 @@ return new class extends Migration
         }
 
         if (! Schema::hasTable('patients')) {
-            Schema::create('patients', function (Blueprint $table) {
-                $table->id();
-                $table->foreignId('lead_id')->nullable()->constrained('leads')->nullOnDelete();
-                $table->foreignId('clinic_id')->nullable()->constrained('clinics')->nullOnDelete();
+        Schema::create('patients', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('lead_id')->nullable()->constrained('leads')->nullOnDelete();
+            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('clinic_id')->nullable()->constrained('clinics')->nullOnDelete();
 
-                $table->enum('registration_source', [
-                    'digital_lead',
-                    'front_desk',
-                    'legacy_migration',
-                ])->default('front_desk')->index();
+            $table->enum('registration_source', [
+                'digital_lead',
+                'front_desk',
+                'legacy_migration',
+            ])->default('front_desk')->index();
 
-                $table->string('full_name');
-                $table->string('phone', 30)->nullable()->index();
-                $table->string('email')->nullable()->unique();
-                $table->date('birthdate')->nullable();
+            $table->string('full_name');
+            $table->string('phone', 30)->nullable()->index();
+            $table->string('email')->nullable()->unique();
+            $table->date('birthdate')->nullable();
 
-                $table->char('curp', 18)->nullable()->unique();
-                $table->enum('gender', ['M', 'F', 'O'])->nullable();
-                $table->text('address')->nullable();
-                $table->string('occupation')->nullable();
-                $table->string('emergency_contact_name')->nullable();
-                $table->string('emergency_contact_phone', 30)->nullable();
+            $table->char('curp', 18)->nullable()->unique();
+            $table->enum('gender', ['M', 'F', 'O'])->nullable();
+            $table->text('address')->nullable();
+            $table->string('occupation')->nullable();
+            $table->string('emergency_contact_name')->nullable();
+            $table->string('emergency_contact_phone', 30)->nullable();
 
-                $table->string('eeg_origin', 30)->default('schedule_required'); // 'schedule_required' | 'external_prior'
-                $table->dateTime('eeg_scheduled_at')->nullable();
-                $table->text('eeg_notes')->nullable();
+            $table->string('eeg_origin', 30)->default('schedule_required'); // 'schedule_required' | 'external_prior'
+            $table->dateTime('eeg_scheduled_at')->nullable();
+            $table->text('eeg_notes')->nullable();
 
-                $table->json('custom_fields')->nullable();
+            $table->json('custom_fields')->nullable();
 
-                $table->enum('status', ['active', 'paused', 'discharged'])->default('active')->index();
-                $table->timestamps();
-                $table->softDeletes();
+            $table->enum('status', ['active', 'paused', 'discharged'])->default('active')->index();
+            $table->timestamps();
+            $table->softDeletes();
 
-                $table->index(['clinic_id', 'status']);
-            });
-        }
+            $table->index(['clinic_id', 'status']);
+        });
+    }
 
         if (! Schema::hasTable('patient_sessions')) {
             Schema::create('patient_sessions', function (Blueprint $table) {
@@ -554,7 +555,7 @@ return new class extends Migration
         }
     }
 
-    public function down(): void
+   public function down(): void
     {
         Schema::disableForeignKeyConstraints();
 
